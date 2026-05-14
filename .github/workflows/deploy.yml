@@ -1,0 +1,182 @@
+name: Deploy — AI-Aware Rollout
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Deployment region (US, IN, GLOBAL)'
+        required: false
+        default: 'US'
+      force_prescale:
+        description: 'Force pre-scale regardless of AI decision'
+        required: false
+        default: 'false'
+
+env:
+  DEPLOYMENT_NAME: peakpilot-app
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/peakpilot-app
+
+jobs:
+
+  # ─────────────────────────────────────────
+  # JOB 1: Ask the AI engine what to do
+  # ─────────────────────────────────────────
+  ai-decision:
+    name: AI Scaling Decision
+    runs-on: ubuntu-latest
+    outputs:
+      should_prescale: ${{ steps.ai-check.outputs.should_prescale }}
+      target_replicas: ${{ steps.ai-check.outputs.target_replicas }}
+      event_name: ${{ steps.ai-check.outputs.event_name }}
+      confidence: ${{ steps.ai-check.outputs.confidence }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install AI engine dependencies
+      run: pip install -r ai-engine/requirements.txt
+
+    - name: Run AI scaling decision
+      id: ai-check
+      env:
+        DEPLOY_REGION: ${{ github.event.inputs.region || 'US' }}
+      run: python3 scripts/check-event.py
+
+    - name: Print decision summary
+      run: |
+        echo "=============================="
+        echo "PeakPilot AI Decision Summary"
+        echo "=============================="
+        echo "Should pre-scale: ${{ steps.ai-check.outputs.should_prescale }}"
+        echo "Target replicas:  ${{ steps.ai-check.outputs.target_replicas }}"
+        echo "Event detected:   ${{ steps.ai-check.outputs.event_name }}"
+        echo "Confidence:       ${{ steps.ai-check.outputs.confidence }}"
+        echo "=============================="
+
+  # ─────────────────────────────────────────
+  # JOB 2: Build and push Docker image
+  # ─────────────────────────────────────────
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: ai-decision
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract Docker metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=sha,prefix=sha-
+          type=ref,event=branch
+          latest
+
+    - name: Build and push image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./app
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+  # ─────────────────────────────────────────
+  # JOB 3: Pre-scale (only if AI says so)
+  # ─────────────────────────────────────────
+  prescale:
+    name: Pre-Scale Pods
+    runs-on: ubuntu-latest
+    needs: [ai-decision, build]
+    if: needs.ai-decision.outputs.should_prescale == 'true' || github.event.inputs.force_prescale == 'true'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Set up kubeconfig
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+
+    - name: Pre-scale pods
+      run: |
+        chmod +x scripts/pre-scale.sh
+        ./scripts/pre-scale.sh \
+          ${{ needs.ai-decision.outputs.target_replicas }} \
+          "${{ needs.ai-decision.outputs.event_name }}"
+
+    - name: Wait for pods to warm up
+      run: |
+        echo "Waiting 30s for new pods to warm up..."
+        sleep 30
+        kubectl get pods -n peakpilot
+
+  # ─────────────────────────────────────────
+  # JOB 4: Deploy
+  # NOTE: needs only [ai-decision, build] — NOT prescale.
+  # prescale is conditional — adding it to needs would cause
+  # this job to fail when prescale is skipped.
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: [ai-decision, build]
+    if: always() && needs.build.result == 'success'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Set up kubeconfig
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+
+    - name: Deploy new image
+      run: |
+        IMAGE_TAG="ghcr.io/${{ github.repository }}/peakpilot-app:sha-${{ github.sha }}"
+        PRESCALED="${{ needs.ai-decision.outputs.should_prescale }}"
+
+        if [ "$PRESCALED" == "true" ]; then
+          echo "Peak event detected. Pods already pre-scaled. Deploying..."
+        else
+          echo "No peak event. Standard rolling update..."
+        fi
+
+        kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
+          peakpilot-app=$IMAGE_TAG -n peakpilot
+
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
+          -n peakpilot --timeout=300s
+
+        echo "Deploy complete."
+
+    - name: Deployment summary
+      run: |
+        echo "================================"
+        echo "Deployment complete"
+        echo "Image: sha-${{ github.sha }}"
+        echo "Pre-scaled: ${{ needs.ai-decision.outputs.should_prescale }}"
+        kubectl get pods -n peakpilot
+        echo "================================"

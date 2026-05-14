@@ -1,0 +1,67 @@
+name: CI — Build and Test
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install AI engine dependencies
+      run: pip install -r ai-engine/requirements.txt
+
+    - name: Run all unit tests
+      run: pytest ai-engine/tests/ -v
+
+    - name: Run smoke tests
+      run: |
+        python3 -c "
+        import sys
+        sys.path.insert(0, 'ai-engine/model')
+        from predict import make_scaling_decision
+        from datetime import datetime
+
+        # Test 1: Black Friday detected
+        d = make_scaling_decision(check_date=datetime(2024, 11, 27), region='US')
+        assert d['should_prescale'] == True, 'Black Friday not detected'
+        assert d['cost_analysis'] is not None, 'Cost analysis missing'
+        assert d['cost_analysis']['cost_justified'] == True, 'Cost should be justified'
+        print('PASS: Black Friday detection + cost analysis')
+
+        # Test 2: Normal day no false positive
+        d = make_scaling_decision(check_date=datetime(2024, 6, 15))
+        assert d['should_prescale'] == False, 'False positive on normal day'
+        assert d['cost_analysis'] is None, 'Cost analysis should be null on normal day'
+        print('PASS: Normal day — no false positive, no cost analysis')
+
+        print('All smoke tests passed.')
+        "
+
+    - name: Build Docker image
+      run: docker build -t peakpilot-app:test ./app
+
+    - name: Test app health endpoint
+      run: |
+        docker run -d --name test-app -p 5001:5000 peakpilot-app:test
+        sleep 5
+        curl --fail http://localhost:5001/health
+        docker stop test-app && docker rm test-app
+        echo "Health check passed."
+
+    - name: Lint Python
+      run: |
+        pip install flake8
+        flake8 ai-engine/model/predict.py --max-line-length=120
+        echo "Lint passed."

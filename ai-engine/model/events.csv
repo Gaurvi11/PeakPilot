@@ -1,0 +1,15 @@
+event_name,region,start_date,end_date,avg_traffic_multiplier,description
+great_indian_festival,IN,2024-10-06,2024-10-10,4.2,Amazon India annual sale
+great_indian_festival,IN,2023-10-08,2023-10-12,3.9,Amazon India annual sale
+great_indian_festival,IN,2022-10-03,2022-10-07,3.6,Amazon India annual sale
+black_friday,US,2024-11-29,2024-12-02,5.1,Post-Thanksgiving sale
+black_friday,US,2023-11-24,2023-11-27,4.8,Post-Thanksgiving sale
+black_friday,US,2022-11-25,2022-11-28,4.5,Post-Thanksgiving sale
+cyber_monday,US,2024-12-02,2024-12-02,3.8,Online shopping day
+cyber_monday,US,2023-11-27,2023-11-27,3.5,Online shopping day
+prime_day,GLOBAL,2024-07-16,2024-07-17,6.2,Amazon Prime member sale
+prime_day,GLOBAL,2023-07-11,2023-07-12,5.8,Amazon Prime member sale
+prime_day,GLOBAL,2022-07-12,2022-07-13,5.5,Amazon Prime member sale
+singles_day,CN,2024-11-11,2024-11-11,7.1,China 11.11 shopping festival
+diwali_sale,IN,2024-10-31,2024-11-03,3.4,Festival season sale
+diwali_sale,IN,2023-11-10,2023-11-13,3.1,Festival season sale

@@ -1,0 +1,35 @@
+name: Retrain AI Model
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install -r ai-engine/requirements.txt
+
+    - name: Retrain model
+      run: python3 ai-engine/model/train.py
+
+    - name: Commit updated model
+      run: |
+        git config user.name "PeakPilot Bot"
+        git config user.email "bot@peakpilot"
+        git add ai-engine/model/
+        git diff --staged --quiet || \
+          git commit -m "chore: retrain AI model [skip ci]"
+        git push
