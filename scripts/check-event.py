@@ -39,8 +39,8 @@ def main():
             f.write(f"should_prescale="
                     f"{'true' if decision['should_prescale'] else 'false'}\n")
             f.write(f"target_replicas={decision['target_replicas']}\n")
-            f.write(f"event_name="
-                    f"{decision.get('event_details', {}).get('event_name', 'none')}\n")
+            event_details = decision.get('event_details') or {}
+            f.write(f"event_name={event_details.get('event_name', 'none')}\n")
             f.write(f"confidence={decision['confidence']}\n")
 
     print(f"should_prescale={decision['should_prescale']}")
