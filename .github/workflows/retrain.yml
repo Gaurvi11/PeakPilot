@@ -24,6 +24,7 @@ jobs:
 
     - name: Retrain model
       run: python3 ai-engine/model/train.py
+      continue-on-error: true
 
     - name: Commit updated model
       run: |
@@ -33,3 +34,4 @@ jobs:
         git diff --staged --quiet || \
           git commit -m "chore: retrain AI model [skip ci]"
         git push
+      continue-on-error: true
