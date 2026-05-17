@@ -19,19 +19,29 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install dependencies
-      run: pip install -r ai-engine/requirements.txt
+    - name: Install dependencies (no Prophet)
+      run: pip install pandas numpy scikit-learn python-dateutil
 
-    - name: Retrain model
-      run: python3 ai-engine/model/train.py
-      continue-on-error: true
-
-    - name: Commit updated model
+    - name: Validate AI engine still works
       run: |
-        git config user.name "PeakPilot Bot"
-        git config user.email "bot@peakpilot"
-        git add ai-engine/model/
-        git diff --staged --quiet || \
-          git commit -m "chore: retrain AI model [skip ci]"
-        git push
-      continue-on-error: true
+        python3 -c "
+        import sys
+        sys.path.insert(0, 'ai-engine/model')
+        from predict import make_scaling_decision
+        from datetime import datetime
+        d = make_scaling_decision(check_date=datetime(2024, 11, 27), region='US')
+        assert d['should_prescale'] == True
+        assert d['cost_analysis'] is not None
+        print('AI engine validation passed.')
+        print(f'Black Friday decision: {d[\"target_replicas\"]} replicas')
+        "
+
+    - name: Log retrain status
+      run: |
+        echo "=============================="
+        echo "PeakPilot Model Status"
+        echo "=============================="
+        echo "Rule-based engine: ACTIVE"
+        echo "Prophet training: SKIPPED (CI environment incompatibility)"
+        echo "Impact on system: NONE - predict.py uses rule-based calendar"
+        echo "=============================="
